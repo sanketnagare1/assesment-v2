@@ -1,11 +1,11 @@
-import express, { Request, Response } from "express";
+import { Request, Response } from "express";
 import ShiftScheduleModel, { ShiftSchedule } from "../models/ShiftScheduleModel.js";
-import { isValidDate, isValidHour } from "./Validations.js";
-import { createShiftScheduleResponse, addStaffMemberResponse } from "../utils/responseUtils.js";
+import { isValidDate, isValidHour } from "../utils/Validations.js";
 import StaffMemberModel from "../models/StaffMemberModel.js";
 import ShiftAssignmentModel from "../models/ShiftAssignmentModel.js";
 import { isEqual } from "date-fns";
-import mongoose, { Types } from "mongoose";
+import mongoose from "mongoose";
+import ShiftAssignmentRequestModel from "../models/ShiftAssignmentRequestModel.js";
 
 // Controller to make new Shift Schedule 
 export const createShiftSchedule = async (req: Request, res: Response) => {
@@ -18,28 +18,25 @@ export const createShiftSchedule = async (req: Request, res: Response) => {
 
 
     if (!date || !startTime || !endTime || !requiredStaffCount) {
-        const response = createShiftScheduleResponse(false);
-        return res.status(response.code)
+        return res.status(400)
             .json({
-                message: response.response
+                message: "Bad Request"
             })
     }
 
     // checking the date format using regex
     if (!isValidDate(date)) {
-        const response = createShiftScheduleResponse(false);
-        return res.status(response.code)
+        return res.status(400)
             .json({
-                message: response.response
+                message: "Bad Request"
             })
     }
 
     // hours should be greater than 1 and less than 24
     if (!isValidHour(startTime) || !isValidHour(endTime)) {
-        const response = createShiftScheduleResponse(false);
-        return res.status(response.code)
+        return res.status(400)
             .json({
-                message: response.response
+                message: "Bad Request"
             })
     }
 
@@ -53,18 +50,15 @@ export const createShiftSchedule = async (req: Request, res: Response) => {
 
         const savedShiftSchedule = await newShiftSchedule.save();
 
-        const response = createShiftScheduleResponse(true, savedShiftSchedule);
-
-        return res.status(response.code).json({
-            response: response.response,
+        return res.status(200).json({
+            message: `Shift Schedule details saved with id ${savedShiftSchedule.id}`,
         });
 
     } catch (error) {
         console.log(error);
-        const response = createShiftScheduleResponse(false);
-        return res.status(response.code)
+        return res.status(400)
             .json({
-                message: response.response
+                message: "Bad request"
             })
     }
 }
@@ -80,38 +74,34 @@ export const addStaffMember = async (req: Request, res: Response) => {
     } = req.body;
 
     if (!name || !dates || !startTime || !endTime) {
-        const response = addStaffMemberResponse(false);
-        return res.status(response.code)
+        return res.status(400)
             .json({
-                message: response.response
+                message: "Bad Request"
             })
     }
 
     // checking if there is proper date array in request payload
     if (!Array.isArray(dates)) {
-        const response = addStaffMemberResponse(false);
-        return res.status(response.code)
+        return res.status(400)
             .json({
-                message: response.response
+                message: "Bad Request"
             })
     }
 
     // Validate the date if is in proper format using regex
     const isValidDates = dates.every((date) => isValidDate(date))
     if (!isValidDates) {
-        const response = addStaffMemberResponse(false);
-        return res.status(response.code)
+        return res.status(400)
             .json({
-                message: response.response
+                message: "Bad Request"
             })
     }
 
     // hours should be greater than 1 and less than 24
     if (!isValidHour(startTime) || !isValidHour(endTime)) {
-        const response = addStaffMemberResponse(false);
-        return res.status(response.code)
+        return res.status(400)
             .json({
-                message: response.response
+                message: "Bad Request"
             })
     }
 
@@ -126,19 +116,16 @@ export const addStaffMember = async (req: Request, res: Response) => {
 
         const savedStaffMember = await newStaffMember.save();
 
-        const response = addStaffMemberResponse(true, savedStaffMember);
-
-        return res.status(response.code)
+        return res.status(200)
             .json({
-                message: response.response
+                message: `Staff member added successfully in the database with staff id ${savedStaffMember.id}`
             })
 
     } catch (error) {
         console.log(error);
-        const response = addStaffMemberResponse(false);
-        return res.status(response.code)
+        return res.status(400)
             .json({
-                message: response.response
+                message: "Bad Request"
             })
     }
 }
@@ -180,8 +167,6 @@ export const assignStaffToShifts = async (req: Request, res: Response) => {
         }
 
 
-
-
         // Take count of the staff that is currently working in that shift
         const assignedStaffCount = await ShiftAssignmentModel.countDocuments({ shiftSchedule: shiftSheduleId });
 
@@ -219,8 +204,6 @@ export const assignStaffToShifts = async (req: Request, res: Response) => {
         }
 
 
-
-
         // Filter out the unavialableStaff from members so that we can display the id of the unavilable user at that time
         const unavailableStaff = staffMemberIds.filter((givenStaffId) => {
 
@@ -256,7 +239,7 @@ export const assignStaffToShifts = async (req: Request, res: Response) => {
             // Update staffMemberIds with only new staff members
             staffMemberIds = staffMemberIds.filter(id => !alreadyAssignedStaffIds.some(existingId => existingId.equals(id)));
         
-            // If all staff members are already assigned
+            // all staff members are already assigned
             if (staffMemberIds.length === 0) {
                 return res.status(400).json({
                     message: `All staff members are already assigned to the given shift schedule`,
@@ -265,16 +248,26 @@ export const assignStaffToShifts = async (req: Request, res: Response) => {
         }
 
 
-        // Assign staff members to the shift
+        // assign the staff members to the shift
         const shiftAssignments = staffMemberIds.map((staffId: string) => ({
             shiftSchedule: shiftSheduleId,
             staffMember: staffId,
         }));
 
-        // adding the records to DB
+        // adding the records to ShiftAssignmentModel
         await ShiftAssignmentModel.insertMany(shiftAssignments);
 
+        
+        // adding the records in ShiftAssignmentRequestModel
+        const shiftAssignmentRequest = new ShiftAssignmentRequestModel({
+            shiftSheduleId : shiftSheduleId,
+            staffMemberIds : staffMemberIds
+        })
 
+        await shiftAssignmentRequest.save();
+
+
+        // successfull response after data insertion in DB
         return res.status(200).json({
             response: 'Staff assigned to shifts successfully',
         });
