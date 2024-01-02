@@ -3,7 +3,7 @@ import ShiftScheduleModel, { ShiftSchedule } from "../models/ShiftScheduleModel.
 import { isValidDate, isValidHour } from "../utils/Validations.js";
 import StaffMemberModel from "../models/StaffMemberModel.js";
 import ShiftAssignmentModel from "../models/ShiftAssignmentModel.js";
-import { isEqual } from "date-fns";
+import { isEqual, isValid } from "date-fns";
 import mongoose from "mongoose";
 import ShiftAssignmentRequestModel from "../models/ShiftAssignmentRequestModel.js";
 
@@ -130,8 +130,7 @@ export const assignStaffToShifts = catchAsyncError(async (req: Request, res: Res
     // Take count of the staff that is currently working in that shift
     const assignedStaffCount = await ShiftAssignmentModel.countDocuments({ shiftSchedule: shiftSheduleId });
 
-    // if current working staff plus members that is going to add is less than required staff then okay
-    // but if current working + going to add > required staff then error
+    // current working + going to add > required staff then error
     if (assignedStaffCount + staffMemberIds.length > shiftSchedule.requiredStaffCount) {
         return next(new ErrorHandler("Given shiftShedule is full you can try assigning staff in different shift", 400))
     }
@@ -162,6 +161,8 @@ export const assignStaffToShifts = catchAsyncError(async (req: Request, res: Res
     const unavailableStaff = staffMemberIds.filter((givenStaffId) => {
 
         const staffMember = availableStaffMembers.find((availableStaff) => availableStaff.id === givenStaffId);
+
+        // return not available staff to unavailableStaff
         return !(
             staffMember &&
             staffMember.startTime >= shiftSchedule.startTime &&
@@ -190,7 +191,7 @@ export const assignStaffToShifts = catchAsyncError(async (req: Request, res: Res
         // Update staffMemberIds with only new staff members
         staffMemberIds = staffMemberIds.filter(id => !alreadyAssignedStaffIds.some(existingId => existingId.equals(id)));
 
-        // all staff members are already assigned
+        // all staff members are already assigned, now new id all found in db
         if (staffMemberIds.length === 0) {
             return next(new ErrorHandler("All staff members are already assigned to the given shift schedule", 400))
         }
@@ -218,24 +219,45 @@ export const assignStaffToShifts = catchAsyncError(async (req: Request, res: Res
 
     // successfull response after data insertion in DB
     return res.status(200).json({
-        response: 'Staff assigned to shifts successfully',
+        response: 'Staff assigned to shifts successfully'
+        // data: shiftAssignments
     });
 })
 
 // controller to get details of shift schedule using the date
+// added redis
 export const viewShiftDetails = catchAsyncError(async (req: Request, res: Response, next: NextFunction) => {
 
-    const { date } = req.body;
+    const { redisClient } = req.app.locals;
 
+    const { date } = req.body;
     if (!date) {
         return next(new ErrorHandler("Bad Request", 400))
     }
-    
+
+    // checking the date format using inbuild and custom made regex
+    if (!isValid(new Date(date)) || !isValidDate(date)) {
+        return next(new ErrorHandler("Bad Request", 400))
+    }
+
+    const key = date;
+
+    const cacheDateData = await redisClient.get(key)
+
+    if (cacheDateData) {
+        return res.status(200)
+            .json(JSON.parse(cacheDateData));
+    }
+
     const shiftDetails = await ShiftScheduleModel.findOne({ date });
 
     if (!shiftDetails) {
         return next(new ErrorHandler("No shift details found for given date", 400))
     }
+
+    await redisClient.set(key, JSON.stringify(shiftDetails));
+
+    await redisClient.expire(key, 120)
 
     return res.status(200)
         .json(shiftDetails)
@@ -272,4 +294,88 @@ export const updateShiftDetails = catchAsyncError(async (req: Request, res: Resp
         .json({
             message: "Shift Details Updated Successfully"
         })
+})
+
+
+
+
+// Extras
+export const getAllMembers = catchAsyncError(async (req: Request, res: Response, next: NextFunction) => {
+    const { redisClient } = req.app.locals;
+    // key for caching
+    let key = 'allMembers'
+    const cacheMembers = await redisClient.get(key)
+
+    if (cacheMembers) {
+        return res.status(200)
+            .json({
+                data: JSON.parse(cacheMembers)
+            })
+    }
+
+    const users = await StaffMemberModel.find({});
+
+    if (!users) {
+        return next(new ErrorHandler("No users", 400));
+    }
+
+    await redisClient.set(key, JSON.stringify(users))
+
+    await redisClient.expire(key, 120)
+
+    return res.status(200)
+        .json({
+            data: users
+        })
+})
+
+
+export const getAllShifts = catchAsyncError(async (req: Request, res: Response, next: NextFunction) => {
+
+    const { redisClient } = req.app.locals;
+    // key for caching
+    let key = 'allShifts'
+    const cacheShifts = await redisClient.get(key)
+
+
+    if (cacheShifts) {
+        return res.status(200)
+            .json({
+                data: JSON.parse(cacheShifts)
+            })
+    }
+
+    const allShifts = await ShiftScheduleModel.find({});
+
+    if (!allShifts) {
+        return next(new ErrorHandler("Bad Request", 400));
+    }
+
+    await redisClient.set(key, JSON.stringify(allShifts))
+
+    await redisClient.expire(key, 120)
+
+    res.status(200)
+        .json({
+            data: allShifts
+        })
+})
+
+
+export const deleteMember = catchAsyncError(async (req: Request, res: Response, next: NextFunction) => {
+
+    const deleteid = req.params.id;
+
+    if (!deleteid) {
+        return next(new ErrorHandler("Bad Request", 400));
+    }
+
+    const deletedMember = await StaffMemberModel.findByIdAndDelete(deleteid);
+
+    res.status(200)
+        .json({
+            message: "User deleted successfully",
+            data: deletedMember
+        })
+
 })
