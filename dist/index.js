@@ -1,17 +1,16 @@
-import express from 'express';
 import dotenv from 'dotenv';
 import { dbconnect } from './config/DB.js';
-import router from './routes/routes.js';
-import errorMiddleware from './middlewares/Error.js';
+// import router from './routes/routes.js';
+// import errorMiddleware from './middlewares/Error.js';
 import { createClient } from 'redis';
-const app = express();
+import app from './app.js';
 dotenv.config();
 // Json middleware
-app.use(express.json());
+// app.use(express.json())
 const port = process.env.PORT;
 // connecting to db
 dbconnect();
-// Redis client connection
+// Redis client connection for caching
 const client = createClient();
 client.on('connect', () => {
     console.log('Connected to Redis');
@@ -25,8 +24,9 @@ client.on('ready', () => {
 client.connect();
 app.locals.redisClient = client;
 // Routes
-app.use('/api/', router);
+// app.use('/api/', router)
 app.listen(port, () => {
     console.log(`Server started at ${port}`);
 });
-app.use(errorMiddleware);
+// middleware for handling errors
+// app.use(errorMiddleware)

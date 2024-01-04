@@ -28,6 +28,12 @@ const shiftScheduleSchema = new Schema<ShiftSchedule>({
         type: Number, 
         required: true 
     },
+},{
+    toJSON:{
+        transform(doc,ret) {
+            delete ret.__v
+        }
+    } 
 });
 
 const ShiftScheduleModel = model<ShiftSchedule> ('ShiftSchedule', shiftScheduleSchema);

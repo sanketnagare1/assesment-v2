@@ -12,11 +12,11 @@ import { catchAsyncError } from "../middlewares/catchAsyncError.js";
 // Controller to make new Shift Schedule 
 export const createShiftSchedule = catchAsyncError(async (req, res, next) => {
     const { date, startTime, endTime, requiredStaffCount } = req.body;
-    if (!date || !startTime || !endTime || !requiredStaffCount) {
+    if (!date || !startTime || !endTime || !requiredStaffCount || requiredStaffCount <= 0 || startTime === endTime) {
         return next(new ErrorHandler("Bad Request", 400));
     }
     // checking the date format using regex
-    if (!isValidDate(date)) {
+    if (!isValidDate(date) || !isValid(new Date(date))) {
         return next(new ErrorHandler("Bad Request", 400));
     }
     // hours should be greater than 1 and less than 24
@@ -32,6 +32,7 @@ export const createShiftSchedule = catchAsyncError(async (req, res, next) => {
     const savedShiftSchedule = await newShiftSchedule.save();
     return res.status(200).json({
         message: `Shift Schedule details saved with id ${savedShiftSchedule.id}`,
+        // message: `Shift Schedule details saved with id`,
     });
 });
 // controller to add new staff member
@@ -40,13 +41,25 @@ export const addStaffMember = catchAsyncError(async (req, res, next) => {
     if (!name || !dates || !startTime || !endTime) {
         return next(new ErrorHandler("Bad Request", 400));
     }
+    const nameRegex = /^[a-zA-Z\s]+$/;
+    if (!nameRegex.test(name)) {
+        return next(new ErrorHandler("Bad Request", 400));
+    }
     // checking if there is proper date array in request payload
     if (!Array.isArray(dates)) {
         return next(new ErrorHandler("Bad Request", 400));
     }
+    if (dates.length === 0) {
+        return next(new ErrorHandler("Bad Request", 400));
+    }
     // Validate the date if is in proper format using regex
-    const isValidDates = dates.every((date) => isValidDate(date));
+    const isValidDates = dates.every((date) => isValidDate(date) && isValid(new Date(date)));
     if (!isValidDates) {
+        return next(new ErrorHandler("Bad Request", 400));
+    }
+    // to check if there are same dates in array
+    const uniqueDates = new Set(dates);
+    if (uniqueDates.size !== dates.length) {
         return next(new ErrorHandler("Bad Request", 400));
     }
     // hours should be greater than 1 and less than 24
@@ -71,6 +84,13 @@ export const assignStaffToShifts = catchAsyncError(async (req, res, next) => {
     if (!shiftSheduleId || !staffMemberIds || !Array.isArray(staffMemberIds)) {
         return next(new ErrorHandler("Bad Request", 400));
     }
+    if (!mongoose.Types.ObjectId.isValid(shiftSheduleId)) {
+        return next(new ErrorHandler("Invalid shift schedule ID", 400));
+    }
+    // Check if staffMemberIds is an array of valid ObjectIds
+    if (!Array.isArray(staffMemberIds) || staffMemberIds.some(id => !mongoose.Types.ObjectId.isValid(id))) {
+        return next(new ErrorHandler("Invalid staff IDs in array", 400));
+    }
     // if given shift Shedule Id is not present in DB
     const shiftSchedule = await ShiftScheduleModel.findById(shiftSheduleId);
     if (!shiftSchedule) {
@@ -94,8 +114,8 @@ export const assignStaffToShifts = catchAsyncError(async (req, res, next) => {
     // check if staff member has the dates of the shift schedule he is going to be assigned
     const isAllAvailable = staffMemberIds.every((givenStaffId) => {
         const staffMember = availableStaffMembers.find((availableStaff) => availableStaff.id === givenStaffId);
-        console.log(staffMember?.dates);
-        console.log(shiftSchedule.date);
+        // console.log(staffMember?.dates);
+        // console.log(shiftSchedule.date);
         if (staffMember && staffMember.dates.some((date) => isEqual(date, shiftSchedule.date))) {
             return true;
         }
@@ -156,7 +176,7 @@ export const assignStaffToShifts = catchAsyncError(async (req, res, next) => {
 // controller to get details of shift schedule using the date
 // added redis
 export const viewShiftDetails = catchAsyncError(async (req, res, next) => {
-    const { redisClient } = req.app.locals;
+    // const { redisClient } = req.app.locals;
     const { date } = req.body;
     if (!date) {
         return next(new ErrorHandler("Bad Request", 400));
@@ -166,17 +186,17 @@ export const viewShiftDetails = catchAsyncError(async (req, res, next) => {
         return next(new ErrorHandler("Bad Request", 400));
     }
     const key = date;
-    const cacheDateData = await redisClient.get(key);
-    if (cacheDateData) {
-        return res.status(200)
-            .json(JSON.parse(cacheDateData));
-    }
+    // const cacheDateData = await redisClient.get(key)
+    // if (cacheDateData) {
+    //     return res.status(200)
+    //         .json(JSON.parse(cacheDateData));
+    // }
     const shiftDetails = await ShiftScheduleModel.findOne({ date });
     if (!shiftDetails) {
         return next(new ErrorHandler("No shift details found for given date", 400));
     }
-    await redisClient.set(key, JSON.stringify(shiftDetails));
-    await redisClient.expire(key, 120);
+    // await redisClient.set(key, JSON.stringify(shiftDetails));
+    // await redisClient.expire(key, 120)
     return res.status(200)
         .json(shiftDetails);
 });

@@ -30,6 +30,12 @@ const staffMemberSchema = new Schema<StaffMember>({
         min: 1, 
         max: 24 
     },
+},{
+    toJSON:{
+        transform(doc,ret) {
+            delete ret.__v
+        }
+    } 
 });
 
 const StaffMemberModel = model<StaffMember>("StaffMember", staffMemberSchema);
